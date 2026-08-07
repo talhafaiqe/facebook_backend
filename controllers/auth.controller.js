@@ -67,6 +67,59 @@ const register = (req, res) => {
 
 };
 
+const jwt = require("jsonwebtoken");
+
+const login = (req, res) => {
+
+    const { email, password } = req.body;
+
+    const sql = "SELECT * FROM users WHERE email = ?";
+
+    connection.query(sql, [email], async (err, results) => {
+
+        if (err) {
+            return res.status(500).json({
+                message: "Database Error"
+            });
+        }
+
+        if (results.length === 0) {
+            return res.status(400).json({
+                message: "Invalid Email"
+            });
+        }
+
+        const user = results[0];
+
+        const match = await bcrypt.compare(password, user.password);
+
+        if (!match) {
+            return res.status(400).json({
+                message: "Invalid Password"
+            });
+        }
+
+        const token = jwt.sign(
+            {
+                id: user.id,
+                email: user.email
+            },
+            process.env.JWT_SECRET,
+            {
+                expiresIn: "24h"
+            }
+        );
+
+        return res.json({
+            success: true,
+            message: "Login Successful",
+            token
+        });
+
+    });
+
+};
 module.exports = {
-    register
+    register,
+    login
 };
