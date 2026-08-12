@@ -1,125 +1,177 @@
-const connection = require("../conf/db");
+const User = require("../models/User");
 const bcrypt = require("bcrypt");
+const jwt = require("jsonwebtoken");
 
-const register = (req, res) => {
 
-    const {
-        first_name,
-        last_name,
-        email,
-        phone,
-        password
-    } = req.body;
+// =======================
+// REGISTER
+// =======================
 
-    // Check if email already exists
-    const checkSql = "SELECT * FROM users WHERE email = ?";
+const register = async (req, res) => {
 
-    connection.query(checkSql, [email], async (err, results) => {
+    try {
 
-        if (err) {
-            return res.status(500).json({
-                message: "Database Error"
-            });
-        }
+        const {
+            first_name,
+            last_name,
+            email,
+            phone,
+            password
+        } = req.body;
 
-        if (results.length > 0) {
+
+        // Check if email already exists
+        const existingUser = await User.findOne({
+            where: {
+                email: email
+            }
+        });
+
+        if (existingUser) {
             return res.status(400).json({
                 message: "Email already exists"
             });
         }
 
+
         // Hash password
         const hashedPassword = await bcrypt.hash(password, 10);
 
-        const insertSql = `
-            INSERT INTO users
-            (first_name, last_name, email, phone, password)
-            VALUES (?, ?, ?, ?, ?)
-        `;
 
-        connection.query(
-            insertSql,
-            [
-                first_name,
-                last_name,
-                email,
-                phone,
-                hashedPassword
-            ],
-            (err, result) => {
+        // Create user using Sequelize
+        const user = await User.create({
 
-                if (err) {
-                    return res.status(500).json({
-                        message: "Database Error"
-                    });
-                }
+            first_name: first_name,
+            last_name: last_name,
+            email: email,
+            phone: phone,
+            password: hashedPassword
 
-                return res.status(201).json({
-                    success: true,
-                    message: "User Registered Successfully",
-                    userId: result.insertId
-                });
+        });
 
-            }
-        );
 
-    });
+        return res.status(201).json({
+
+            success: true,
+            message: "User Registered Successfully",
+            userId: user.id
+
+        });
+
+
+    } catch (error) {
+
+        console.log(error);
+
+        return res.status(500).json({
+
+            message: "Database Error"
+
+        });
+
+    }
 
 };
 
-const jwt = require("jsonwebtoken");
 
-const login = (req, res) => {
+// =======================
+// LOGIN
+// =======================
 
-    const { email, password } = req.body;
+const login = async (req, res) => {
 
-    const sql = "SELECT * FROM users WHERE email = ?";
+    try {
 
-    connection.query(sql, [email], async (err, results) => {
+        const {
+            email,
+            password
+        } = req.body;
 
-        if (err) {
-            return res.status(500).json({
-                message: "Database Error"
-            });
-        }
 
-        if (results.length === 0) {
+        // Find user
+        const user = await User.findOne({
+
+            where: {
+                email: email
+            }
+
+        });
+
+
+        // User doesn't exist
+        if (!user) {
+
             return res.status(400).json({
+
                 message: "Invalid Email"
+
             });
+
         }
 
-        const user = results[0];
 
-        const match = await bcrypt.compare(password, user.password);
+        // Compare password
+        const match = await bcrypt.compare(
+            password,
+            user.password
+        );
+
 
         if (!match) {
+
             return res.status(400).json({
+
                 message: "Invalid Password"
+
             });
+
         }
 
+
+        // Create JWT
         const token = jwt.sign(
+
             {
                 id: user.id,
                 email: user.email
             },
+
             process.env.JWT_SECRET,
+
             {
                 expiresIn: "24h"
             }
+
         );
 
+
         return res.json({
+
             success: true,
             message: "Login Successful",
             token
+
         });
 
-    });
+
+    } catch (error) {
+
+        console.log(error);
+
+        return res.status(500).json({
+
+            message: "Database Error"
+
+        });
+
+    }
 
 };
+
+
 module.exports = {
+
     register,
     login
+
 };

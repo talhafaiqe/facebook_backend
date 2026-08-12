@@ -1,90 +1,204 @@
-const connection = require("../conf/db");
+const FriendRequest = require("../models/FriendRequest");
+const Friend = require("../models/Friend");
+const User = require("../models/User");
 
-const sendFriendRequest = (req, res) => {
+// ==============================
+// SEND FRIEND REQUEST
+// ==============================
 
-    const senderId = req.user.id;
-    const receiverId = req.params.id;
+const sendFriendRequest = async (req, res) => {
 
-    // Cannot send request to yourself
-    if (senderId == receiverId) {
-        return res.status(400).json({
-            message: "You cannot send a friend request to yourself"
-        });
-    }
+    try {
 
-    // Check if receiver exists
-    const checkUser = "SELECT * FROM users WHERE id = ?";
+        const senderId = req.user.id;
+        const receiverId = req.params.id;
 
-    connection.query(checkUser, [receiverId], (err, results) => {
 
-        if (err) {
-            return res.status(500).json({
-                message: "Database Error"
+        // Cannot send request to yourself
+        if (senderId == receiverId) {
+
+            return res.status(400).json({
+                message: "You cannot send a friend request to yourself"
             });
+
         }
 
-        if (results.length === 0) {
+
+        // Check receiver exists
+        const receiver = await User.findByPk(receiverId);
+
+        if (!receiver) {
+
             return res.status(404).json({
                 message: "User not found"
             });
+
         }
 
-        // Check if request already exists
-        const checkRequest = `
-            SELECT * FROM friend_requests
-            WHERE sender_id = ? AND receiver_id = ?
-        `;
 
-        connection.query(
-            checkRequest,
-            [senderId, receiverId],
-            (err, request) => {
+        // Check existing request
+        const existingRequest = await FriendRequest.findOne({
 
-                if (err) {
-                    return res.status(500).json({
-                        message: "Database Error"
-                    });
-                }
-
-                if (request.length > 0) {
-                    return res.status(400).json({
-                        message: "Friend request already sent"
-                    });
-                }
-
-                // Insert friend request
-                const insertSql = `
-                    INSERT INTO friend_requests
-                    (sender_id, receiver_id)
-                    VALUES (?, ?)
-                `;
-
-                connection.query(
-                    insertSql,
-                    [senderId, receiverId],
-                    (err, result) => {
-
-                        if (err) {
-                            return res.status(500).json({
-                                message: "Database Error"
-                            });
-                        }
-
-                        return res.status(201).json({
-                            success: true,
-                            message: "Friend request sent successfully"
-                        });
-
-                    }
-                );
-
+            where: {
+                sender_id: senderId,
+                receiver_id: receiverId
             }
-        );
 
-    });
+        });
+
+
+        if (existingRequest) {
+
+            return res.status(400).json({
+                message: "Friend request already sent"
+            });
+
+        }
+
+
+        // Create request
+        await FriendRequest.create({
+
+            sender_id: senderId,
+            receiver_id: receiverId,
+            status: "Pending"
+
+        });
+
+
+        return res.status(201).json({
+
+            success: true,
+            message: "Friend request sent successfully"
+
+        });
+
+
+    } catch (error) {
+
+        console.log(error);
+
+        return res.status(500).json({
+
+            message: "Database Error"
+
+        });
+
+    }
 
 };
 
+// ==============================
+//     ACCEPT FRIEND REQUEST
+// ==============================
+
+const acceptFriendRequest = async (req, res) => {
+
+    try {
+
+        const requestId = req.params.id;
+        const userId = req.user.id;
+
+        // Find the request
+        const request = await FriendRequest.findByPk(requestId);
+
+        if (!request) {
+            return res.status(404).json({
+                message: "Friend request not found"
+            });
+        }
+
+        // Make sure current user is the receiver
+        if (request.receiver_id != userId) {
+            return res.status(403).json({
+                message: "You cannot accept this friend request"
+            });
+        }
+
+        // Make sure request is still pending
+        if (request.status !== "Pending") {
+            return res.status(400).json({
+                message: "Friend request is already processed"
+            });
+        }
+
+        // Update request
+        await request.update({
+            status: "Accepted"
+        });
+
+        // Create friendship
+        await Friend.create({
+            user_id: request.sender_id,
+            friend_id: request.receiver_id
+        });
+
+        return res.json({
+            success: true,
+            message: "Friend request accepted successfully"
+        });
+
+    } catch (error) {
+
+        console.log(error);
+
+        return res.status(500).json({
+            message: "Database Error"
+        });
+
+    }
+};
+
+// ==============================
+// REJECT FRIEND REQUEST
+// ==============================
+
+const rejectFriendRequest = async (req, res) => {
+    try {
+        const requestId = req.params.id;
+        const userId = req.user.id;
+
+        const request = await FriendRequest.findByPk(requestId);
+
+        if (!request) {
+            return res.status(404).json({
+                message: "Friend request not found"
+            });
+        }
+
+        if (request.receiver_id != userId) {
+            return res.status(403).json({
+                message: "You cannot reject this friend request"
+            });
+        }
+
+        if (request.status !== "Pending") {
+            return res.status(400).json({
+                message: "Friend request is already processed"
+            });
+        }
+
+        await request.update({
+            status: "Rejected"
+        });
+
+        return res.json({
+            success: true,
+            message: "Friend request rejected successfully"
+        });
+
+    } catch (error) {
+        console.log(error);
+
+        return res.status(500).json({
+            message: "Database Error"
+        });
+    }
+};
+
+
 module.exports = {
-    sendFriendRequest
+    sendFriendRequest,
+    acceptFriendRequest,
+    rejectFriendRequest
 };
